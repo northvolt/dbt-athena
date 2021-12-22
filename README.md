@@ -52,7 +52,7 @@ A dbt profile can be configured to run against AWS Athena using the following co
 | work_group      | Identifier of Athena workgroup                                                  | Optional   | `my-custom-workgroup` |
 | num_retries     | Number of times to retry a failing query                                        | Optional   | `3`                   |
 | s3_data_dir     | Prefix for storing tables, if different from the connection's `s3_staging_dir`  | Optional   | `s3://bucket2/dbt/`   |
-| s3_data_naming  | How to generate table paths in `s3_data_dir`: `uuid | schema_table`             | Optional   | `uuid`                |
+| s3_data_naming  | How to generate table paths in `s3_data_dir`: `uuid/schema_table`               | Optional   | `uuid`                |
 
 
 **Example profiles.yml entry:**
