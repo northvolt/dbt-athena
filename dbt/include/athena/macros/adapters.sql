@@ -20,6 +20,8 @@
     with (
       {%- if external_location is not none and not temporary %}
         external_location='{{ external_location }}',
+      {%- elif adapter.has_s3_data_dir() -%}
+        external_location='{{ adapter.s3_table_location(relation.schema, relation.identifier) }}',
       {%- endif %}
       {%- if partitioned_by is not none %}
         partitioned_by=ARRAY{{ partitioned_by | tojson | replace('\"', '\'') }},
@@ -110,9 +112,7 @@
 {% endmacro %}
 
 {% macro athena__drop_relation(relation) -%}
-  {% if config.get('incremental_strategy') == 'insert_overwrite' %}
-    {%- do adapter.clean_up_table(relation.schema, relation.table) -%}
-  {% endif %}
+  {%- do adapter.clean_up_table(relation.schema, relation.table) -%}
   {% call statement('drop_relation', auto_begin=False) -%}
     drop {{ relation.type }} if exists {{ relation }}
   {%- endcall %}

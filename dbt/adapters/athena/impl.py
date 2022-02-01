@@ -1,7 +1,7 @@
 from uuid import uuid4
 import agate
 import re
-import boto3
+import boto3.session
 from botocore.exceptions import ClientError
 
 from dbt.adapters.base import available
@@ -36,11 +36,64 @@ class AthenaAdapter(SQLAdapter):
         return "timestamp"
 
     @available
-    def s3_uuid_table_location(self):
-        conn = self.connections.get_thread_connection()
-        client = conn.handle
+    def s3_table_prefix(self) -> str:
+        """
+        Returns the root location for storing tables in S3.
 
-        return f"{client.s3_staging_dir}tables/{str(uuid4())}/"
+        This is `s3_data_dir`, if set, and `s3_staging_dir/tables/` if not.
+
+        We generate a value here even if `s3_data_dir` is not set,
+        since creating a seed table requires a non-default location.
+        """
+        conn = self.connections.get_thread_connection()
+        creds = conn.credentials
+        if creds.s3_data_dir is not None:
+            return creds.s3_data_dir
+        else:
+            return f"{creds.s3_staging_dir}tables/"
+
+    @available
+    def s3_uuid_table_location(self) -> str:
+        """
+        Returns a random location for storing a table, using a UUID as
+        the final directory part
+        """
+        return f"{self.s3_table_prefix()}{str(uuid4())}/"
+
+
+    @available
+    def s3_schema_table_location(self, schema_name: str, table_name: str) -> str:
+        """
+        Returns a fixed location for storing a table determined by the
+        (athena) schema and table name
+        """
+        return f"{self.s3_table_prefix()}{schema_name}/{table_name}/"
+
+    @available
+    def s3_table_location(self, schema_name: str, table_name: str) -> str:
+        """
+        Returns either a UUID or database/table prefix for storing a table,
+        depending on the value of s3_table
+        """
+        conn = self.connections.get_thread_connection()
+        creds = conn.credentials
+        if creds.s3_data_naming == "schema_table":
+            return self.s3_schema_table_location(schema_name, table_name)
+        elif creds.s3_data_naming == "uuid":
+            return self.s3_uuid_table_location()
+        else:
+            raise ValueError(f"Unknown value for s3_data_naming: {creds.s3_data_naming}")
+
+    @available
+    def has_s3_data_dir(self) -> bool:
+        """
+        Returns true if the user has specified `s3_data_dir`, and
+        we should set `external_location
+        """
+        conn = self.connections.get_thread_connection()
+        creds = conn.credentials
+        return creds.s3_data_dir is not None
+
 
     @available
     def clean_up_partitions(
@@ -48,10 +101,11 @@ class AthenaAdapter(SQLAdapter):
     ):
         # Look up Glue partitions & clean up
         conn = self.connections.get_thread_connection()
-        client = conn.handle
+        creds = conn.credentials
+        session = boto3.session.Session(region_name=creds.region_name, profile_name=creds.aws_profile_name)
 
-        glue_client = boto3.client('glue', region_name=client.region_name)
-        s3_resource = boto3.resource('s3', region_name=client.region_name)
+        glue_client = session.client('glue')
+        s3_resource = session.resource('s3')
         partitions = glue_client.get_partitions(
             # CatalogId='123456789012', # Need to make this configurable if it is different from default AWS Account ID
             DatabaseName=database_name,
@@ -74,8 +128,10 @@ class AthenaAdapter(SQLAdapter):
     ):
         # Look up Glue partitions & clean up
         conn = self.connections.get_thread_connection()
-        client = conn.handle
-        glue_client = boto3.client('glue', region_name=client.region_name)
+        creds = conn.credentials
+        session = boto3.session.Session(region_name=creds.region_name, profile_name=creds.aws_profile_name)
+
+        glue_client = session.client('glue')
         try:
             table = glue_client.get_table(
                 DatabaseName=database_name,
@@ -93,7 +149,6 @@ class AthenaAdapter(SQLAdapter):
             if m is not None:
                 bucket_name = m.group(1)
                 prefix = m.group(2)
-                s3_resource = boto3.resource('s3', region_name=client.region_name)
+                s3_resource = session.resource('s3')
                 s3_bucket = s3_resource.Bucket(bucket_name)
                 s3_bucket.objects.filter(Prefix=prefix).delete()
-
