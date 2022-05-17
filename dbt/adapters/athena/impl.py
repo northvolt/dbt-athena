@@ -64,6 +64,11 @@ class AthenaAdapter(SQLAdapter):
 
 
     @available
+    def temp_table_suffix(self, initial="__dbt_tmp", length=8):
+        return f"{initial}_{str(uuid4())[:length]}"
+
+
+    @available
     def s3_schema_table_location(self, schema_name: str, table_name: str) -> str:
         """
         Returns a fixed location for storing a table determined by the
