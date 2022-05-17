@@ -108,14 +108,19 @@ class AthenaAdapter(SQLAdapter):
 
         glue_client = session.client('glue')
         s3_resource = session.resource('s3')
-        partitions = glue_client.get_partitions(
+        paginator = glue_client.get_paginator("get_partitions")
+        partition_pages = paginator.paginate(
             # CatalogId='123456789012', # Need to make this configurable if it is different from default AWS Account ID
             DatabaseName=database_name,
             TableName=table_name,
-            Expression=where_condition
+            Expression=where_condition,
+            ExcludeColumnSchema=True,
         )
+        partitions = []
+        for page in partition_pages:
+            partitions.extend(page["Partitions"])
         p = re.compile('s3://([^/]*)/(.*)')
-        for partition in partitions["Partitions"]:
+        for partition in partitions:
             logger.debug("Deleting objects for partition '{}' at '{}'", partition["Values"], partition["StorageDescriptor"]["Location"])
             m = p.match(partition["StorageDescriptor"]["Location"])
             if m is not None:
